@@ -1,3 +1,7 @@
 <Solution>
+  <Project Path="DMS_FE/dms_fe.esproj">
+    <Build />
+    <Deploy />
+  </Project>
   <Project Path="DMS_Project/DMS_Project.csproj" />
 </Solution>
