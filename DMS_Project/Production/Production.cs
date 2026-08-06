@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.SQLite;
 using System.IO;
+using DMS_Project.Audit;
 using DMS_Project.DataPool;
 
 namespace DMS_Project.Production
@@ -15,19 +16,28 @@ namespace DMS_Project.Production
 
         private readonly string _basePath = @"C:\DMS\ProductionData";
         private readonly DataPool.DataPool _dataPool;
+        private readonly IAuditService _audit;
 
         #endregion
 
         #region Constructor
 
-        public Production(DataPool.DataPool? dataPool = null)
+        public Production(DataPool.DataPool? dataPool = null, IAuditService? audit = null)
         {
             _dataPool = dataPool ?? new DataPool.DataPool();
+            _audit = audit ?? NullAuditService.Instance;
 
             if (!Directory.Exists(_basePath))
             {
                 Directory.CreateDirectory(_basePath);
             }
+        }
+
+        private sealed class NullAuditService : IAuditService
+        {
+            public static readonly NullAuditService Instance = new();
+            public Task RecordSuccessAsync(string action, string entityType, string? entityId, object? before, object? after, string? changedFieldsJson, string? parentEntityType = null, string? parentEntityId = null, object? metadata = null, CancellationToken ct = default) => Task.CompletedTask;
+            public Task RecordFailureAsync(string action, string entityType, string? entityId, string error, object? before = null, string? parentEntityType = null, string? parentEntityId = null, object? metadata = null, CancellationToken ct = default) => Task.CompletedTask;
         }
 
         #endregion
@@ -223,6 +233,15 @@ namespace DMS_Project.Production
             // Insert vào POList
             InsertPOToList(poListDb, poInfo);
 
+            _audit.RecordSuccessAsync(
+                action: "Production.POCreated",
+                entityType: AuditEntityTypes.ProductionOrder,
+                entityId: poInfo.orderNo,
+                before: null,
+                after: poInfo,
+                changedFieldsJson: null,
+                metadata: new { poFolder });
+
             return new POResult(true, $"Tạo PO {poInfo.orderNo} thành công");
         }
 
@@ -273,6 +292,16 @@ namespace DMS_Project.Production
 
             // Cập nhật counter
             UpdateTotalCount(orderNo, added);
+
+            _audit.RecordSuccessAsync(
+                action: "Production.CodesLoaded",
+                entityType: AuditEntityTypes.ProductionOrder,
+                entityId: orderNo,
+                before: null,
+                after: new { loadedCount = added, requestedQty = qty, gtin },
+                changedFieldsJson: null,
+                parentEntityType: AuditEntityTypes.Pool,
+                parentEntityId: gtin);
 
             return new POResult(true, $"Đã tải {added} mã từ pool {gtin}");
         }
@@ -369,6 +398,16 @@ namespace DMS_Project.Production
                 // 2. Cập nhật lại Status trong DataPool gốc (GTIN = PoolName)
                 _dataPool.UpdateCodeStatus(gtin, code, null, 1);
 
+                _audit.RecordSuccessAsync(
+                    action: "Production.CodeActivated",
+                    entityType: AuditEntityTypes.UniqueCode,
+                    entityId: code,
+                    before: new { Status = 0 },
+                    after: new { Status = 1, ActivateDate = activateDate, ActivateUser = user },
+                    changedFieldsJson: "Status,ActivateDate,ProductionDate,ActivateUser",
+                    parentEntityType: AuditEntityTypes.ProductionOrder,
+                    parentEntityId: orderNo);
+
                 return new POResult(true, $"Kích hoạt mã {code} thành công");
             }
         }
@@ -402,6 +441,16 @@ namespace DMS_Project.Production
 
                 // Cập nhật counter
                 UpdateCounter(orderNo);
+
+                _audit.RecordSuccessAsync(
+                    action: "Production.CodeStatusChanged",
+                    entityType: AuditEntityTypes.UniqueCode,
+                    entityId: code,
+                    before: null,
+                    after: new { Status = status },
+                    changedFieldsJson: "Status",
+                    parentEntityType: AuditEntityTypes.ProductionOrder,
+                    parentEntityId: orderNo);
 
                 return new POResult(true, $"Cập nhật trạng thái mã {code} thành {status}");
             }
@@ -437,6 +486,16 @@ namespace DMS_Project.Production
                     cmd.ExecuteNonQuery();
                 }
             }
+
+            _audit.RecordSuccessAsync(
+                action: "Production.CartonCreated",
+                entityType: AuditEntityTypes.Carton,
+                entityId: cartonCode,
+                before: null,
+                after: new { cartonCode, startTime, user, cartonCount = 0 },
+                changedFieldsJson: null,
+                parentEntityType: AuditEntityTypes.ProductionOrder,
+                parentEntityId: orderNo);
 
             return new POResult<string>(true, $"Tạo thùng {cartonCode} thành công", cartonCode);
         }
@@ -486,6 +545,16 @@ namespace DMS_Project.Production
                     cmd.ExecuteNonQuery();
                 }
             }
+
+            _audit.RecordSuccessAsync(
+                action: "Production.CodeAddedToCarton",
+                entityType: AuditEntityTypes.UniqueCode,
+                entityId: code,
+                before: new { cartonCode = "" },
+                after: new { cartonCode },
+                changedFieldsJson: "cartonCode",
+                parentEntityType: AuditEntityTypes.ProductionOrder,
+                parentEntityId: orderNo);
 
             return new POResult(true, $"Thêm mã {code} vào thùng {cartonCode}");
         }
@@ -671,6 +740,17 @@ namespace DMS_Project.Production
                 }
             }
 
+            _audit.RecordSuccessAsync(
+                action: "Production.AwsSendStatusChanged",
+                entityType: AuditEntityTypes.UniqueCode,
+                entityId: string.Join(",", codes),
+                before: null,
+                after: new { Send_Status = sendStatus },
+                changedFieldsJson: "Send_Status",
+                parentEntityType: AuditEntityTypes.ProductionOrder,
+                parentEntityId: orderNo,
+                metadata: new { codeCount = codes.Count });
+
             return new POResult(true, $"Cập nhật {codes.Count} mã thành công");
         }
 
@@ -729,6 +809,8 @@ namespace DMS_Project.Production
             using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
+                new SQLiteCommand("PRAGMA journal_mode=WAL;", conn).ExecuteNonQuery();
+
                 using (var cmd = new SQLiteCommand(@"
                     CREATE TABLE IF NOT EXISTS POList (
                         orderNo TEXT PRIMARY KEY,
@@ -751,6 +833,8 @@ namespace DMS_Project.Production
             using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
+                new SQLiteCommand("PRAGMA journal_mode=WAL;", conn).ExecuteNonQuery();
+
                 using (var cmd = new SQLiteCommand(@"
                     CREATE TABLE IF NOT EXISTS UniqueCodes (
                         ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -777,6 +861,8 @@ namespace DMS_Project.Production
             using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
+                new SQLiteCommand("PRAGMA journal_mode=WAL;", conn).ExecuteNonQuery();
+
                 using (var cmd = new SQLiteCommand(@"
                     CREATE TABLE IF NOT EXISTS Records (
                         ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -801,6 +887,8 @@ namespace DMS_Project.Production
             using (var conn = new SQLiteConnection($"Data Source={dbPath};Version=3;"))
             {
                 conn.Open();
+                new SQLiteCommand("PRAGMA journal_mode=WAL;", conn).ExecuteNonQuery();
+
                 using (var cmd = new SQLiteCommand(@"
                     CREATE TABLE IF NOT EXISTS Cartons (
                         ID INTEGER PRIMARY KEY AUTOINCREMENT,

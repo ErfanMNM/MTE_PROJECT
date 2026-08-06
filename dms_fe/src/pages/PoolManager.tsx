@@ -599,36 +599,31 @@ function ImportCSVModal({
 
     try {
       setLoading(true);
-      const text = await file.text();
-      const lines = text.split('\n').filter(line => line.trim());
-      const codes = lines.map(line => {
-        const fields = parseCSVLine(line);
-        return fields[codeColumn] || '';
-      }).filter(code => code);
+      const formData = new FormData();
+      formData.append('file', file);
+      if (createID) formData.append('createID', createID);
+      formData.append('createdBy', 'API');
 
-      if (codes.length === 0) {
-        addToast('error', 'No codes found in selected column');
-        return;
+      const res = await fetch(`/api/datapool/pools/${encodeURIComponent(poolName)}/codes/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || `HTTP ${res.status}`);
       }
 
-      await fetch(`/api/datapool/pools/${encodeURIComponent(poolName)}/codes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mode: 1,
-          codes: codes,
-          createID: createID || undefined,
-          createdBy: 'API',
-        }),
-      });
-
-      addToast('success', `Imported ${codes.length} codes`);
+      const d = json.data || {};
+      addToast(
+        'success',
+        `Imported ${d.totalCount?.toLocaleString() ?? 0} codes (added: ${d.addedCount?.toLocaleString() ?? 0}, dup: ${d.duplicateCount?.toLocaleString() ?? 0})`
+      );
       setFile(null);
       setCsvData([]);
       setCreateID('');
       onSuccess();
     } catch (error) {
-      addToast('error', 'Failed to import codes');
+      addToast('error', `Failed to import codes: ${(error as Error).message}`);
       console.error(error);
     } finally {
       setLoading(false);

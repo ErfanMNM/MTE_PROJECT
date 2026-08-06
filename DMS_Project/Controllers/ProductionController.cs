@@ -1,10 +1,15 @@
 using Microsoft.AspNetCore.Mvc;
+using DMS_Project.Auth;
+using DMS_Project.Infrastructure;
 using DMS_Project.Production;
+using Microsoft.AspNetCore.Authorization;
 
 namespace DMS_Project.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [ApiGroup("main")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Operator}")]
     public class ProductionController : ControllerBase
     {
         private readonly Production.Production _production;

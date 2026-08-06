@@ -1,5 +1,6 @@
 using System.Data;
 using System.Data.SQLite;
+using DMS_Project.Audit;
 
 namespace DMS_Project.DataPool
 {
@@ -11,12 +12,14 @@ namespace DMS_Project.DataPool
     {
         #region Private Fields & Constants
         private string _databasePath = @"C:\DMS\DataPool";
+        private readonly IAuditService _audit;
         #endregion
 
         #region Constructor
-        public DataPool()
+        public DataPool(IAuditService? audit = null)
         {
             // Constructor - có thể khởi tạo đường dẫn mặc định
+            _audit = audit ?? NullAuditService.Instance;
         }
         #endregion
 
@@ -98,6 +101,8 @@ namespace DMS_Project.DataPool
             using (var conn = new SQLiteConnection($"Data Source={poolPath};Version=3;"))
             {
                 conn.Open();
+                new SQLiteCommand("PRAGMA journal_mode=WAL;", conn).ExecuteNonQuery();
+
                 using (var cmd = new SQLiteCommand(sql, conn))
                 {
                     cmd.ExecuteNonQuery();
@@ -118,12 +123,28 @@ namespace DMS_Project.DataPool
                 }
             }
 
+            _audit.RecordSuccessAsync(
+                action: "Pool.Create",
+                entityType: AuditEntityTypes.Pool,
+                entityId: poolInfo.PoolName,
+                before: null,
+                after: poolInfo,
+                changedFieldsJson: null,
+                metadata: new { poolPath });
+
             return new DataPoolResultString(true, "Pool created successfully", poolPath);
         }
 
         #endregion
 
         #region ============== 3. ADD CODES ==============
+
+        private sealed class NullAuditService : IAuditService
+        {
+            public static readonly NullAuditService Instance = new();
+            public Task RecordSuccessAsync(string action, string entityType, string? entityId, object? before, object? after, string? changedFieldsJson, string? parentEntityType = null, string? parentEntityId = null, object? metadata = null, CancellationToken ct = default) => Task.CompletedTask;
+            public Task RecordFailureAsync(string action, string entityType, string? entityId, string error, object? before = null, string? parentEntityType = null, string? parentEntityId = null, object? metadata = null, CancellationToken ct = default) => Task.CompletedTask;
+        }
 
         /// <summary>
         /// Thêm mã vào pool
@@ -306,7 +327,212 @@ namespace DMS_Project.DataPool
                 }
             }
 
+            var outcome = result.AddedCount > 0
+                ? AuditOutcomes.Success
+                : (result.TotalCount > 0 ? AuditOutcomes.Partial : AuditOutcomes.Failure);
+
+            if (outcome == AuditOutcomes.Failure)
+            {
+                _audit.RecordFailureAsync(
+                    action: "Pool.CodesAdded",
+                    entityType: AuditEntityTypes.Pool,
+                    entityId: poolName,
+                    error: result.Message,
+                    metadata: new { totalCount = result.TotalCount, addedCount = result.AddedCount, duplicateCount = result.DuplicateCount, errorCount = result.ErrorCount });
+            }
+            else
+            {
+                _audit.RecordSuccessAsync(
+                    action: "Pool.CodesAdded",
+                    entityType: AuditEntityTypes.Pool,
+                    entityId: poolName,
+                    before: null,
+                    after: new { createID, createdBy },
+                    changedFieldsJson: null,
+                    metadata: new
+                    {
+                        totalCount = result.TotalCount,
+                        addedCount = result.AddedCount,
+                        duplicateCount = result.DuplicateCount,
+                        errorCount = result.ErrorCount,
+                        outcome
+                    });
+            }
+
             return result;
+        }
+
+        #endregion
+
+        #region ============== 3.5 ADD CODES BATCH FROM CSV STREAM ==============
+
+        /// <summary>
+        /// Bulk insert codes từ stream CSV (dùng cho upload file lớn).
+        /// - Đọc trực tiếp từ stream, gom batch 5000 codes/lần.
+        /// - Mỗi batch: 1 transaction + multi-row INSERT OR IGNORE để SQLite tự bỏ duplicate.
+        /// - Trả về số liệu: totalCount, addedCount, duplicateCount, errorCount, durationMs.
+        /// </summary>
+        public DataPoolAddCodesResult AddCodesBatchCsv(
+            string poolName,
+            Stream csvStream,
+            string createID,
+            string createdBy,
+            int batchSize = 5000,
+            Action<int, int>? progressCallback = null)
+        {
+            var result = new DataPoolAddCodesResult();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            if (string.IsNullOrWhiteSpace(poolName))
+            {
+                result.Message = "Tên Pool không được trống.";
+                return result;
+            }
+
+            var poolPathResult = GetPoolPath(poolName);
+            if (!poolPathResult.Success)
+            {
+                result.Message = poolPathResult.Message;
+                return result;
+            }
+            string poolPath = poolPathResult.Data;
+            if (!File.Exists(poolPath))
+            {
+                result.Message = "Pool không tồn tại.";
+                return result;
+            }
+
+            if (csvStream == null || !csvStream.CanRead)
+            {
+                result.Message = "Stream CSV không hợp lệ.";
+                return result;
+            }
+
+            result.Success = true;
+            string createDatetime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+            // Đọc mỗi dòng (dùng buffer lớn để tăng tốc)
+            using var reader = new StreamReader(csvStream, System.Text.Encoding.UTF8, true, 1 << 16, leaveOpen: true);
+
+            var batch = new List<string>(batchSize);
+            string? line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                // CSV đơn giản: 1 dòng = 1 mã (lấy cột đầu nếu có dấu phẩy)
+                var trimmed = line.Trim();
+                if (string.IsNullOrEmpty(trimmed)) continue;
+
+                if (trimmed.Contains(','))
+                {
+                    var firstComma = trimmed.IndexOf(',');
+                    trimmed = trimmed.Substring(0, firstComma).Trim();
+                }
+                if (string.IsNullOrEmpty(trimmed)) continue;
+
+                // Bỏ quotes nếu có
+                if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+                {
+                    trimmed = trimmed.Substring(1, trimmed.Length - 2);
+                }
+
+                batch.Add(trimmed);
+                result.TotalCount++;
+
+                if (batch.Count >= batchSize)
+                {
+                    FlushBatch(batch, poolPath, createID, createdBy, createDatetime, result);
+                    progressCallback?.Invoke(result.TotalCount, result.TotalCount);
+                    batch.Clear();
+                }
+            }
+
+            // Flush batch cuối
+            if (batch.Count > 0)
+            {
+                FlushBatch(batch, poolPath, createID, createdBy, createDatetime, result);
+                progressCallback?.Invoke(result.TotalCount, result.TotalCount);
+            }
+
+            sw.Stop();
+            result.Message = $"Hoàn tất. Thêm mới: {result.AddedCount}, Trùng: {result.DuplicateCount}, Lỗi: {result.ErrorCount}, Thời gian: {sw.ElapsedMilliseconds} ms";
+
+            _audit.RecordSuccessAsync(
+                action: "Pool.CodesAdded",
+                entityType: AuditEntityTypes.Pool,
+                entityId: poolName,
+                before: null,
+                after: new { createID, createdBy },
+                changedFieldsJson: null,
+                metadata: new
+                {
+                    source = "CsvStream",
+                    totalCount = result.TotalCount,
+                    addedCount = result.AddedCount,
+                    duplicateCount = result.DuplicateCount,
+                    errorCount = result.ErrorCount,
+                    durationMs = (int)sw.ElapsedMilliseconds
+                });
+
+            return result;
+        }
+
+        private void FlushBatch(
+            List<string> batch,
+            string poolPath,
+            string createID,
+            string createdBy,
+            string createDatetime,
+            DataPoolAddCodesResult result)
+        {
+            try
+            {
+                using var conn = new SQLiteConnection($"Data Source={poolPath};Version=3;");
+                conn.Open();
+                using var transaction = conn.BeginTransaction();
+                try
+                {
+                    // Build multi-row INSERT OR IGNORE
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append("INSERT OR IGNORE INTO Codes (PoolCode, Status, PoolCodeCreateID, PoolCodeCreatedBy, PoolCodeCreateDatetime) VALUES ");
+                    for (int i = 0; i < batch.Count; i++)
+                    {
+                        if (i > 0) sb.Append(',');
+                        sb.Append("(@c").Append(i).Append(", 0, @cid, @cby, @cdt)");
+                    }
+
+                    using var cmd = new SQLiteCommand(sb.ToString(), conn, transaction);
+                    for (int i = 0; i < batch.Count; i++)
+                    {
+                        cmd.Parameters.AddWithValue("@c" + i, batch[i]);
+                    }
+                    cmd.Parameters.AddWithValue("@cid", createID);
+                    cmd.Parameters.AddWithValue("@cby", createdBy);
+                    cmd.Parameters.AddWithValue("@cdt", createDatetime);
+
+                    int inserted = cmd.ExecuteNonQuery();
+                    result.AddedCount += inserted;
+                    result.DuplicateCount += batch.Count - inserted;
+
+                    transaction.Commit();
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    result.ErrorCount += batch.Count;
+                    if (result.Errors.Count < 10)
+                    {
+                        result.Errors.Add($"Batch error: {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.ErrorCount += batch.Count;
+                if (result.Errors.Count < 10)
+                {
+                    result.Errors.Add($"Connection error: {ex.Message}");
+                }
+            }
         }
 
         #endregion
@@ -397,7 +623,23 @@ namespace DMS_Project.DataPool
                 if (rowsAffected > 0)
                 {
                     string statusName = newStatus == 0 ? "chưa dùng" : (newStatus == 1 ? "đã dùng" : "lỗi");
-                    return new DataPoolResult(true, $"Cập nhật thành công sang trạng thái '{statusName}'. {rowsAffected} dòng bị ảnh hưởng.");
+                    var msg = $"Cập nhật thành công sang trạng thái '{statusName}'. {rowsAffected} dòng bị ảnh hưởng.";
+
+                    var before = new { Status = (int?)null, PoolCode = poolCode, ID = id };
+                    var after = new { Status = newStatus, PoolCode = poolCode, ID = id };
+
+                    _audit.RecordSuccessAsync(
+                        action: "Pool.CodeStatusChanged",
+                        entityType: AuditEntityTypes.PoolCode,
+                        entityId: poolCode ?? $"id={id}",
+                        before: before,
+                        after: after,
+                        changedFieldsJson: "Status",
+                        parentEntityType: AuditEntityTypes.Pool,
+                        parentEntityId: poolName,
+                        metadata: new { rowsAffected, newStatus });
+
+                    return new DataPoolResult(true, msg);
                 }
                 return new DataPoolResult(false, "Không tìm thấy mã code phù hợp.");
             }
@@ -840,5 +1082,7 @@ namespace DMS_Project.DataPool
         }
 
         #endregion
+
+ 
     }
 }

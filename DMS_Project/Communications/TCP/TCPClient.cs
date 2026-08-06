@@ -1,12 +1,11 @@
-using System;
+
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace SpT.Communications.TCP
+
+namespace DMS_Project.Communications.TCP
 {
     public enum enumClient
     {
@@ -16,22 +15,18 @@ namespace SpT.Communications.TCP
         RECONNECT
     }
 
-    public class TCPClient : IDisposable
+    public class TCPClient
     {
         public delegate void EventForClient(enumClient state, string data);
-        public event EventForClient ClientCallBack;
+        public event EventForClient? ClientCallBack;
 
         public string IP { get; set; }
         public int Port { get; set; }
         public bool Connected { get; private set; } = false;
 
-        private Socket client;
-        private CancellationTokenSource cts;
-        private Task reconnectTask;
-
-        public TCPClient()
-        {
-        }
+        private Socket? client;
+        private CancellationTokenSource? cts;
+        private Task? reconnectTask;
 
         public void Connect()
         {

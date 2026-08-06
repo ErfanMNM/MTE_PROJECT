@@ -29,7 +29,7 @@ export const getPoolInfo = async (poolName: string): Promise<PoolInfoDto> => {
 // Get pool path
 export const getPoolPath = async (poolName: string): Promise<string> => {
   const response = await api.get<ApiResponse<{ Path: string }>>(`/datapool/pools/${encodeURIComponent(poolName)}/path`);
-  return response.data.data!.Path;
+  return response.data.data!.path;
 };
 
 // Create a new pool

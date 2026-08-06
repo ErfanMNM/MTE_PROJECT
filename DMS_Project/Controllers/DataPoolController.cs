@@ -1,5 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Data;
+using DMS_Project.Auth;
+using DMS_Project.Infrastructure;
+using Microsoft.AspNetCore.Authorization;
 
 using PoolInfo = DMS_Project.DataPool.PoolInfo;
 using PoolInfoBasic = DMS_Project.DataPool.PoolInfoBasic;
@@ -7,12 +10,15 @@ using PoolInfoWithCount = DMS_Project.DataPool.PoolInfoWithCount;
 using PoolListResult = DMS_Project.DataPool.PoolListResult;
 using PoolCodePageResult = DMS_Project.DataPool.PoolCodePageResult;
 using CodeCount = DMS_Project.DataPool.CodeCount;
+using DataPoolAddCodesResult = DMS_Project.DataPool.DataPoolAddCodesResult;
 
 namespace DMS_Project.Controllers
 {
     [ApiController]
     [Route("api/datapool")]
     [Produces("application/json")]
+    [ApiGroup("main")]
+    [Authorize(Roles = $"{AppRoles.Admin},{AppRoles.Operator}")]
     public class DataPoolController : ControllerBase
     {
         private readonly DMS_Project.DataPool.DataPool _dataPool;
@@ -221,6 +227,81 @@ namespace DMS_Project.Controllers
 
             if (!result.Success && result.TotalCount == 0)
                 return BadRequest(new ApiResponse<object> { Success = false, Message = result.Message });
+
+            return Ok(new ApiResponse<AddCodesResultDto>
+            {
+                Success = result.Success,
+                Message = result.Message,
+                Data = new AddCodesResultDto
+                {
+                    TotalCount = result.TotalCount,
+                    AddedCount = result.AddedCount,
+                    DuplicateCount = result.DuplicateCount,
+                    ErrorCount = result.ErrorCount,
+                    Errors = result.Errors
+                }
+            });
+        }
+
+        /// <summary>
+        /// Upload file CSV chứa codes và thêm vào pool (dùng cho upload lớn - 1M+ codes).
+        /// </summary>
+        /// <remarks>
+        /// Content-Type: multipart/form-data. Form fields: file (CSV), createID (optional), createdBy (optional).
+        /// Server sẽ stream đọc file và bulk insert theo batch 5000 codes/lần.
+        /// </remarks>
+        [HttpPost("pools/{poolName}/codes/upload")]
+        [RequestSizeLimit(200_000_000)]
+        [RequestFormLimits(MultipartBodyLengthLimit = 200_000_000)]
+        public async Task<IActionResult> UploadCodesCsv(
+            string poolName,
+            IFormFile? file,
+            [FromForm] string? createID,
+            [FromForm] string? createdBy)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "File CSV không được trống."
+                });
+            }
+
+            var pathResult = _dataPool.GetPoolPath(poolName);
+            if (!pathResult.Success)
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = pathResult.Message
+                });
+            }
+            string poolFile = pathResult.Data;
+            if (!System.IO.File.Exists(poolFile))
+            {
+                return BadRequest(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Pool không tồn tại."
+                });
+            }
+
+            string resolvedCreateID = string.IsNullOrWhiteSpace(createID)
+                ? Guid.NewGuid().ToString()
+                : createID;
+            string resolvedCreatedBy = string.IsNullOrWhiteSpace(createdBy) ? "API" : createdBy;
+
+            DataPoolAddCodesResult result;
+            using (var stream = file.OpenReadStream())
+            {
+                result = _dataPool.AddCodesBatchCsv(
+                    poolName,
+                    stream,
+                    resolvedCreateID,
+                    resolvedCreatedBy,
+                    batchSize: 5000);
+            }
 
             return Ok(new ApiResponse<AddCodesResultDto>
             {
