@@ -20,7 +20,7 @@ namespace DMS_Project.Communications.TCP
         public delegate void EventForClient(enumClient state, string data);
         public event EventForClient? ClientCallBack;
 
-        public string IP { get; set; }
+        public required string IP { get; set; }
         public int Port { get; set; }
         public bool Connected { get; private set; } = false;
 

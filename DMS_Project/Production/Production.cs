@@ -256,7 +256,7 @@ namespace DMS_Project.Production
         {
             // 1. Lấy mã từ DataPool (GTIN = PoolName, status 0 = chưa dùng)
             var poolCodes = _dataPool.GetCodesByStatus(gtin, status: 0);
-            if (!poolCodes.Success || poolCodes.Data.Rows.Count == 0)
+            if (!poolCodes.Success || poolCodes.Data == null || poolCodes.Data.Rows.Count == 0)
                 return new POResult(false, $"Không có mã nào trong pool {gtin}");
 
             string poFolder = GetPOFolder(gtin, DateTime.Now.ToString("yyyy-MM-dd"));

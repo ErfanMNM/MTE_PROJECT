@@ -7,11 +7,13 @@ import {
   Menu,
   X,
   LayoutDashboard,
+  Wifi,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/pools', icon: Database, label: 'Data Pool' },
   { to: '/po', icon: Package, label: 'PO Manager' },
+  { to: '/ws-test', icon: Wifi, label: 'WS Test' },
 ];
 
 export function Sidebar() {

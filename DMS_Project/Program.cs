@@ -1,18 +1,20 @@
-﻿using DMS_Project.Audit;
+﻿#region === USINGS ===
+using DMS_Project.Audit;
 using DMS_Project.Auth;
 using DMS_Project.Communications.Orders;
 using DMS_Project.Communications.TCP;
 using DMS_Project.Config;
 using DMS_Project.Infrastructure;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
 using DataPoolService = DMS_Project.DataPool.DataPool;
 using ProductionService = DMS_Project.Production.Production;
+#endregion
 
+#region === BUILDER CONFIGURATION ===
 var builder = WebApplication.CreateBuilder(args);
 
-// Forward-declared service provider holder cho TCP callback runtime access
 IServiceProvider? _tcpServiceProvider = null;
+int _isBusy = 0;
 
 AppConfig appConfig = new AppConfig();
 appConfig = ConfigStorage.Load<AppConfig>();
@@ -29,17 +31,20 @@ tcpCamera.ClientCallBack += (state, data) =>
     try { TcpCamera_ClientCallBack(state, data); } catch { /* do not crash TCP loop */ }
 };
 
-
 tcpCamera.Connect();
+#endregion
 
-// ===== Kestrel: listen cả 2 port =====
+#region === KESTREL CONFIG ===
 builder.WebHost.ConfigureKestrel(options =>
 {
     options.ListenAnyIP(5000);
     options.ListenAnyIP(49211);
-    options.Limits.MaxRequestBodySize = 200_000_000; // 200MB cho upload CSV lớn
+    options.ListenAnyIP(51883);
+    options.Limits.MaxRequestBodySize = 200_000_000;
 });
+#endregion
 
+#region === MVC & SWAGGER ===
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -49,27 +54,6 @@ builder.Services.AddControllers()
 builder.Services.AddCors();
 builder.Services.AddEndpointsApiExplorer();
 
-// ===== Auth / JWT =====
-builder.Services.AddSingleton<AuthRepository>(sp =>
-    new AuthRepository(sp.GetRequiredService<AppConfig>().AuthDbPath));
-builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
-builder.Services.AddSingleton<JwtTokenService>(sp =>
-{
-    var cfg = sp.GetRequiredService<AppConfig>();
-    return new JwtTokenService(cfg.JwtSecret, cfg.JwtIssuer, cfg.JwtAudience, cfg.JwtExpirationMinutes);
-});
-builder.Services.AddSingleton<AuthDbInitializer>();
-builder.Services.AddSingleton<IAuthService, AuthService>();
-
-// ===== Audit =====
-builder.Services.AddSingleton<AuditRepository>(sp =>
-    new AuditRepository(sp.GetRequiredService<AppConfig>().AuditDbPath));
-builder.Services.AddSingleton<AuditDbInitializer>(sp =>
-    new AuditDbInitializer(sp.GetRequiredService<AppConfig>().AuditDbPath,
-        sp.GetRequiredService<ILogger<AuditDbInitializer>>()));
-builder.Services.AddSingleton<IAuditService, AuditService>();
-
-// ===== Swagger: 2 doc (main + orders) =====
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("main", new()
@@ -85,7 +69,6 @@ builder.Services.AddSwaggerGen(c =>
         Description = "REST API cho Orders (port 49211)"
     });
 
-    // JWT bearer cho Swagger UI
     c.AddSecurityDefinition("Bearer", new()
     {
         Name = "Authorization",
@@ -99,7 +82,6 @@ builder.Services.AddSwaggerGen(c =>
         [new() { Reference = new() { Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme, Id = "Bearer" } }] = Array.Empty<string>()
     });
 
-    // Lọc endpoint theo ApiGroupAttribute cho từng doc
     c.DocInclusionPredicate((docName, apiDesc) =>
     {
         var group = apiDesc.ActionDescriptor.EndpointMetadata
@@ -108,6 +90,26 @@ builder.Services.AddSwaggerGen(c =>
         return group != null && group.Name == docName;
     });
 });
+#endregion
+
+#region === SERVICES ===
+builder.Services.AddSingleton<AuthRepository>(sp =>
+    new AuthRepository(sp.GetRequiredService<AppConfig>().AuthDbPath));
+builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
+builder.Services.AddSingleton<JwtTokenService>(sp =>
+{
+    var cfg = sp.GetRequiredService<AppConfig>();
+    return new JwtTokenService(cfg.JwtSecret, cfg.JwtIssuer, cfg.JwtAudience, cfg.JwtExpirationMinutes);
+});
+builder.Services.AddSingleton<AuthDbInitializer>();
+builder.Services.AddSingleton<IAuthService, AuthService>();
+
+builder.Services.AddSingleton<AuditRepository>(sp =>
+    new AuditRepository(sp.GetRequiredService<AppConfig>().AuditDbPath));
+builder.Services.AddSingleton<AuditDbInitializer>(sp =>
+    new AuditDbInitializer(sp.GetRequiredService<AppConfig>().AuditDbPath,
+        sp.GetRequiredService<ILogger<AuditDbInitializer>>()));
+builder.Services.AddSingleton<IAuditService, AuditService>();
 
 builder.Services.AddSingleton<DataPoolService>(sp =>
     new DataPoolService(sp.GetRequiredService<IAuditService>()));
@@ -116,13 +118,9 @@ builder.Services.AddSingleton<ProductionService>(sp =>
 builder.Services.AddSingleton<OrderQueueService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<OrderQueueService>());
 
-// ===== Authentication & Authorization =====
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // Service provider phải resolve sau khi Build() mới có instance,
-        // nên cấu hình callback post-build: dùng cách đăng ký TokenValidationParameters qua
-        // options.PostConfigure để có thể lấy JwtTokenService đã đăng ký singleton.
         options.RequireHttpsMetadata = false;
     });
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
@@ -131,27 +129,25 @@ builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSc
         options.TokenValidationParameters = jwt.BuildValidationParameters();
     });
 builder.Services.AddAuthorization();
+#endregion
 
 var app = builder.Build();
 
-// ===== Khởi tạo DB: Auth + Audit =====
+#region === APP STARTUP ===
 app.Services.GetRequiredService<AuthDbInitializer>().EnsureCreated();
 app.Services.GetRequiredService<AuditDbInitializer>().EnsureCreated();
-// Lưu service provider để TCP callback truy cập
 _tcpServiceProvider = app.Services;
+#endregion
 
-// ===== Swagger middleware: route doc theo port =====
+#region === MIDDLEWARE ===
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.RoutePrefix = "swagger";
-
-    // Doc "orders" dùng riêng cho port 49211
     c.SwaggerEndpoint("/swagger/orders/swagger.json", "DMS Orders API v1");
     c.SwaggerEndpoint("/swagger/main/swagger.json", "DMS Main API v1");
 });
 
-// Middleware: trả 404 nếu request vào port không thuộc group của endpoint
 app.Use(async (ctx, next) =>
 {
     var endpoint = ctx.GetEndpoint();
@@ -172,12 +168,10 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
+app.UseWebSockets();
 app.UseRouting();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
-// Audit middleware: capture HTTP request audit + populate execution context
 app.UseMiddleware<AuditMiddleware>();
 
 app.UseCors(policy =>
@@ -187,7 +181,6 @@ app.UseCors(policy =>
           .AllowAnyMethod();
 });
 
-// Middleware: rewrite URL swagger.json theo port để Swagger UI đúng doc
 app.Use(async (ctx, next) =>
 {
     if (ctx.Request.Path.StartsWithSegments("/swagger"))
@@ -195,7 +188,6 @@ app.Use(async (ctx, next) =>
         var localPort = ctx.Connection.LocalPort;
         var groupName = localPort == 49211 ? "orders" : "main";
 
-        // /swagger/v1/swagger.json → /swagger/{group}/swagger.json
         var originalPath = ctx.Request.Path.Value ?? string.Empty;
         if (originalPath.Equals("/swagger/v1/swagger.json", StringComparison.OrdinalIgnoreCase) ||
             originalPath.Equals("/swagger", StringComparison.OrdinalIgnoreCase))
@@ -207,10 +199,25 @@ app.Use(async (ctx, next) =>
     }
     await next();
 });
+#endregion
 
+#region === ENDPOINTS ===
 app.MapControllers();
 
-// Redirect root về swagger
+app.Map("/ws/c1", async (HttpContext context) =>
+{
+    if (context.WebSockets.IsWebSocketRequest)
+    {
+        var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+        var handler = new DMS_Project.Communications.WebSockets.C1WebSocketHandler(webSocket);
+        await handler.HandleAsync();
+    }
+    else
+    {
+        context.Response.StatusCode = 400;
+    }
+});
+
 app.MapGet("/", (HttpContext ctx) =>
 {
     var url = ctx.Connection.LocalPort == 49211 ? "/swagger" : "/swagger";
@@ -218,8 +225,9 @@ app.MapGet("/", (HttpContext ctx) =>
 });
 
 app.Run();
+#endregion
 
-// Callback xử lý dữ liệu nhận từ camera
+#region === CAMERA CALLBACK ===
 void TcpCamera_ClientCallBack(enumClient state, string data)
 {
     var audit = _tcpServiceProvider?.GetService<IAuditService>();
@@ -230,21 +238,73 @@ void TcpCamera_ClientCallBack(enumClient state, string data)
         case enumClient.DISCONNECTED:
             break;
         case enumClient.RECEIVED:
-            audit?.RecordSuccessAsync(
-                action: "Telegram.TcpReceived",
-                entityType: AuditEntityTypes.TcpMessage,
-                entityId: null,
-                before: null,
-                after: new
+            if (Interlocked.CompareExchange(ref _isBusy, 1, 0) == 0)
+            {
+                tcpCamera.Send("BUSY");
+                _ = Task.Run(() =>
                 {
-                    length = data?.Length ?? 0,
-                    preview = data == null ? null : (data.Length > 200 ? data.Substring(0, 200) + "..." : data),
-                    source = "Camera"
-                },
-                changedFieldsJson: null,
-                metadata: new { state });
+                    try
+                    {
+                        HandleCameraData(data);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[CAMERA ERROR] {ex.Message}");
+                    }
+                    finally
+                    {
+                        Interlocked.Exchange(ref _isBusy, 0);
+                        tcpCamera.Send("READY");
+                    }
+                });
+            }
+            else
+            {
+                tcpCamera.Send("BUSY");
+            }
             break;
         case enumClient.RECONNECT:
             break;
     }
 }
+
+void HandleCameraData(string data)
+{
+    // TODO: Xử lý data từ camera
+    Console.WriteLine($"[CAMERA] Received: {data}");
+}
+#endregion
+
+#region === BACKGROUND SERVICES ===
+public class AppStateService : BackgroundService
+{
+    private readonly ILogger<AppStateService> _logger;
+
+    public AppStateService(ILogger<AppStateService> logger)
+    {
+        _logger = logger;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                DoWork();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "AppStateService error");
+            }
+
+            await Task.Delay(100, stoppingToken);
+        }
+    }
+
+    private void DoWork()
+    {
+        // TODO: Logic của bạn
+    }
+}
+#endregion
