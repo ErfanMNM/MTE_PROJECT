@@ -1,0 +1,23 @@
+{
+  "name": "dms_broker",
+  "version": "1.0.0",
+  "description": "WebSocket pub/sub broker",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node app.js"
+  },
+  "keywords": ["websocket", "broker", "pubsub"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^11.0.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "eslint": "^10.8.1"
+  }
+}
