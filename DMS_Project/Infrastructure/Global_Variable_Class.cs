@@ -11,6 +11,8 @@ namespace DMS_Project.Infrastructure
         // Current Production Order
         public static POInfo CurrentPO { get; set; } = new POInfo();
 
+        public static bool UIOk { get; set; } = false;
+
         // Production State Machine
         public static e_Production_State ProductionState { get; set; } = e_Production_State.NoSelectedPO;
 

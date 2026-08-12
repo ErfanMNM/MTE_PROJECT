@@ -2,11 +2,11 @@
   "profiles": {
     "DMS_Project": {
       "commandName": "Project",
-      "launchBrowser": true,
+      "launchBrowser": false,
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       },
-      "applicationUrl": "https://localhost:61787;http://localhost:61788"
+      "applicationUrl": "http://localhost:5000"
     }
   }
 }
