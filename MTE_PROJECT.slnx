@@ -1,7 +1,9 @@
 <Solution>
+  <Project Path="DMS_App/DMS_App.csproj" Id="c132f72c-8c71-4f24-a06a-68500d63558a" />
   <Project Path="DMS_FE/dms_fe.esproj">
     <Build />
     <Deploy />
   </Project>
+  <Project Path="DMS_Library/DMS_Library.csproj" Id="b7a2fd82-0d6e-4a0d-80d9-2218ac68b3be" />
   <Project Path="DMS_Project/DMS_Project.csproj" />
 </Solution>
