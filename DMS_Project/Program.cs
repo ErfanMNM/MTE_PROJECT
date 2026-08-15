@@ -24,7 +24,7 @@ TCPClient tcpCamera = new TCPClient
 {
     IP = appConfig.Camera_Ip ?? "127.0.0.1",
     Port = appConfig.Camera_Port
-};
+};  
 
 tcpCamera.ClientCallBack += (state, data) =>
 {
