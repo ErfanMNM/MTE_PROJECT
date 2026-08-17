@@ -6,4 +6,5 @@
   </Project>
   <Project Path="DMS_Library/DMS_Library.csproj" Id="b7a2fd82-0d6e-4a0d-80d9-2218ac68b3be" />
   <Project Path="DMS_Project/DMS_Project.csproj" />
+  <Project Path="ExApp/ExApp.csproj" Id="6cdec616-9bb2-490c-be8c-8a117c5b9c08" />
 </Solution>
