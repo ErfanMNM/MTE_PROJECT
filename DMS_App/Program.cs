@@ -171,6 +171,11 @@ void CameraTCP_ClientCallBack(enumClient state, string data)
     }
 }
 
+async Task void MQTT()
+{
+    var a = 1;
+}
+
 while (true);
 
 public class MQTT_Pub_Payload
