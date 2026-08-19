@@ -34,16 +34,16 @@
             // listBox1
             // 
             listBox1.FormattingEnabled = true;
-            listBox1.Location = new Point(12, 104);
+            listBox1.Location = new Point(2, 106);
             listBox1.Name = "listBox1";
-            listBox1.Size = new Size(819, 484);
+            listBox1.Size = new Size(838, 484);
             listBox1.TabIndex = 0;
             // 
             // MainForm
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(843, 591);
+            ClientSize = new Size(842, 591);
             Controls.Add(listBox1);
             Name = "MainForm";
             Text = "Form1";
