@@ -7,19 +7,25 @@
 #>
 
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$OrgName,
-
-    [Parameter(Mandatory=$true)]
-    [string]$WarpServiceTokenId,
-
-    [Parameter(Mandatory=$true)]
-    [string]$WarpServiceTokenSecret,
-
+    # Hardcoded defaults
+    [string]$OrgName = "thuc",
+    [string]$WarpServiceTokenId = "127a0757e3e3dd5f4fec524610e9fe1c.access",
     [string]$RustDeskServer = "rs-ny1.rustdesk.com",
     [string]$RelayServer = "100.96.0.11",
-    [string]$InstallPath = "$env:LOCALAPPDATA\Programs\RustDeskMonitor"
+    [string]$InstallPath = "$env:LOCALAPPDATA\Programs\RustDeskMonitor",
+
+    # Optional secret - prompt if not provided
+    [Parameter(Mandatory=$false)]
+    [string]$WarpServiceTokenSecret
 )
+
+# Prompt for secret if not provided
+if ([string]::IsNullOrWhiteSpace($WarpServiceTokenSecret)) {
+    Write-Host ""
+    Write-Host "Enter WarpServiceTokenSecret:" -ForegroundColor Yellow -NoNewline
+    $WarpServiceTokenSecret = Read-Host -AsSecureString
+    $WarpServiceTokenSecret = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($WarpServiceTokenSecret))
+}
 
 $ErrorActionPreference = "Stop"
 $LogFile = "$env:TEMP\Deploy_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
@@ -30,26 +36,60 @@ function Write-Log {
     "$timestamp - $Message" | Tee-Object -FilePath $LogFile -Append
 }
 
-function Install-RustDesk {
-    Write-Log "=== Installing RustDesk ==="
-
+function Test-RustDeskInstalled {
     $rustdeskPath = "$env:ProgramFiles\RustDesk\RustDesk.exe"
+    $installedVia = $null
+
+    # Check executable exists
     if (Test-Path $rustdeskPath) {
-        Write-Log "RustDesk already installed"
-        return
+        $installedVia = "executable"
     }
+
+    # Check registry (uninstaller info)
+    $regPaths = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustDesk",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\RustDesk",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RustDesk"
+    )
+
+    foreach ($regPath in $regPaths) {
+        if (Test-Path $regPath) {
+            $installedVia = "registry"
+            break
+        }
+    }
+
+    return @{
+        Installed = ($null -ne $installedVia)
+        Method = $installedVia
+    }
+}
+
+function Install-RustDesk {
+    Write-Log "=== Checking RustDesk ==="
+
+    $status = Test-RustDeskInstalled
+    if ($status.Installed) {
+        Write-Log "RustDesk already installed (via: $($status.Method)) - skipping installation"
+        return $false
+    }
+
+    Write-Log "Installing RustDesk..."
 
     $installer = "$env:TEMP\RustDeskSetup.exe"
     Write-Log "Downloading RustDesk..."
     Invoke-WebRequest -Uri "https://github.com/rustdesk/rustdesk/releases/latest/download/rustdesk-setup.exe" -OutFile $installer
 
-    Write-Log "Installing RustDesk..."
+    Write-Log "Running installer..."
     Start-Process -FilePath $installer -ArgumentList "/S" -Wait
 
-    if (!(Test-Path $rustdeskPath)) {
+    $status = Test-RustDeskInstalled
+    if (!$status.Installed) {
         throw "RustDesk installation failed"
     }
+
     Write-Log "RustDesk installed successfully"
+    return $true
 }
 
 function Set-RustDeskConfig {
@@ -57,6 +97,12 @@ function Set-RustDeskConfig {
 
     $configDir = "$env:APPDATA\RustDesk\config"
     $configFile = "$configDir\RustDesk2.toml"
+
+    # Check if config already exists
+    if (Test-Path $configFile) {
+        Write-Log "RustDesk config already exists - skipping (to overwrite, delete: $configFile)"
+        return $false
+    }
 
     if (!(Test-Path $configDir)) {
         New-Item -ItemType Directory -Path $configDir -Force | Out-Null
@@ -82,28 +128,59 @@ local-ip-addr = '100.96.0.9'
 
     Set-Content -Path $configFile -Value $config -Force
     Write-Log "RustDesk config written to: $configFile"
+    return $true
+}
+
+function Test-CloudflareWARPInstalled {
+    $warpPath = "$env:ProgramFiles\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe"
+    $warpCliPath = "$env:ProgramFiles\Cloudflare\Cloudflare WARP\warp-cli.exe"
+
+    return @{
+        Installed = (Test-Path $warpPath)
+        CLIExists = (Test-Path $warpCliPath)
+    }
+}
+
+function Test-WARPConnectedToOrg {
+    param([string]$OrgName)
+
+    $warpCli = "$env:ProgramFiles\Cloudflare\Cloudflare WARP\warp-cli.exe"
+    if (!(Test-Path $warpCli)) {
+        return $false
+    }
+
+    try {
+        $status = & $warpCli status 2>&1
+        if ($status -match $OrgName -and $status -match "Connected") {
+            return $true
+        }
+    } catch {}
+
+    return $false
 }
 
 function Install-CloudflareWARP {
-    Write-Log "=== Installing Cloudflare WARP ==="
+    Write-Log "=== Checking Cloudflare WARP ==="
 
-    $warpPath = "$env:ProgramFiles\Cloudflare\Cloudflare WARP\Cloudflare WARP.exe"
-    if (Test-Path $warpPath) {
-        Write-Log "Cloudflare WARP already installed"
-        return
+    $status = Test-CloudflareWARPInstalled
+    if (!$status.Installed) {
+        Write-Log "Installing Cloudflare WARP..."
+
+        $installer = "$env:TEMP\CloudflareWARP.msi"
+        Write-Log "Downloading Cloudflare WARP..."
+        Invoke-WebRequest -Uri "https://pkg.cloudflareclient.com/warp/release/x86_64/Cloudflare_WARP_x64.msi" -OutFile $installer
+
+        Write-Log "Installing Cloudflare WARP..."
+        Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$installer`" /qn" -Wait
+
+        $status = Test-CloudflareWARPInstalled
+        if (!$status.Installed) {
+            throw "WARP installation failed"
+        }
+        Write-Log "Cloudflare WARP installed successfully"
+    } else {
+        Write-Log "Cloudflare WARP already installed - skipping"
     }
-
-    $installer = "$env:TEMP\CloudflareWARP.msi"
-    Write-Log "Downloading Cloudflare WARP..."
-    Invoke-WebRequest -Uri "https://pkg.cloudflareclient.com/warp/release/x86_64/Cloudflare_WARP_x64.msi" -OutFile $installer
-
-    Write-Log "Installing Cloudflare WARP..."
-    Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$installer`" /qn" -Wait
-
-    if (!(Test-Path $warpPath)) {
-        throw "WARP installation failed"
-    }
-    Write-Log "Cloudflare WARP installed successfully"
 }
 
 function Connect-WARPToOrg {
@@ -117,7 +194,13 @@ function Connect-WARPToOrg {
 
     $warpCli = "$env:ProgramFiles\Cloudflare\Cloudflare WARP\warp-cli.exe"
     if (!(Test-Path $warpCli)) {
-        throw "warp-cli not found"
+        throw "warp-cli not found - install WARP first"
+    }
+
+    # Check if already connected to this org
+    if (Test-WARPConnectedToOrg -OrgName $OrgName) {
+        Write-Log "Already connected to organization: $OrgName - skipping"
+        return
     }
 
     # Create bootstrap file
@@ -145,8 +228,16 @@ function Connect-WARPToOrg {
     Write-Log "Connecting to organization..."
     & $warpCli connect 2>&1 | Out-Null
 
-    # Enable always-on
-    & $warpCli enable-always-on 2>&1 | Out-Null
+    # Enable always-on via registry (newer WARP versions)
+    $warpSettings = @{
+        "AutoConnect" = 1
+        "Mode" = "warp"
+    }
+
+    $warpRegPath = "HKCU:\Software\Cloudflare\Cloudflare WARP"
+    foreach ($key in $warpSettings.Keys) {
+        Set-ItemProperty -Path $warpRegPath -Name $key -Value $warpSettings[$key] -ErrorAction SilentlyContinue
+    }
 
     Write-Log "WARP connected to $OrgName"
 }
@@ -157,13 +248,19 @@ function Install-MonitorService {
     Write-Log "=== Installing RustDeskMonitor Service ==="
 
     # Build service first
-    $projectDir = Split-Path -Parent $MyInvocation.ScriptName
-    $serviceExe = "$projectDir\bin\Release\net10.0\RustDeskMonitor.exe"
+    $scriptDir = Split-Path -Parent $MyInvocation.ScriptName
+    $projectDir = Split-Path -Parent $scriptDir
+    $rustdeskDir = "$projectDir\RustDesk"
+    $binDir = "$scriptDir\bin"
+    $serviceExe = "$binDir\RustDeskMonitor.exe"
 
     if (!(Test-Path $serviceExe)) {
-        Write-Log "Building service..."
-        Push-Location "$projectDir\RustDesk"
-        dotnet publish -c Release -o "$projectDir\Deploy\bin"
+        Write-Log "Building service from: $rustdeskDir"
+        if (!(Test-Path $binDir)) {
+            New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+        }
+        Push-Location $rustdeskDir
+        dotnet publish -c Release -o $binDir
         Pop-Location
     }
 
@@ -172,9 +269,10 @@ function Install-MonitorService {
         New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
     }
 
-    # Copy files
-    Copy-Item -Path $serviceExe -Destination $InstallPath -Force
-    Copy-Item -Path "$projectDir\RustDesk\appsettings.json" -Destination $InstallPath -Force
+    # Copy ALL files from bin directory (including DLLs)
+    Write-Log "Copying service files to: $InstallPath"
+    Copy-Item -Path "$binDir\*" -Destination $InstallPath -Recurse -Force
+    Write-Log "Copied $(@(Get-ChildItem $binDir -File).Count) files"
 
     # Create service
     $serviceName = "RustDeskMonitor"
