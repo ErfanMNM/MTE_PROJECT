@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CodePlus.ViewModels"
+             xmlns:local="clr-namespace:CodePlus.Views"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+             x:Class="CodePlus.Views.AiChatView"
+             x:DataType="vm:AiChatViewModel">
+
+    <Design.DataContext>
+        <vm:AiChatViewModel />
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*,Auto">
+        <StackPanel Grid.Row="0" Margin="0,0,0,12" Spacing="4">
+            <TextBlock Text="AI Chat" FontSize="26" FontWeight="Bold" />
+            <TextBlock Text="Ask anything about your codebase." Opacity="0.7" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1">
+            <ItemsControl ItemsSource="{Binding Messages}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,4" Padding="14" CornerRadius="18"
+                                HorizontalAlignment="{Binding Role, Converter={x:Static local:RoleAlignmentConverter.Instance}}"
+                                Background="{Binding Role, Converter={x:Static local:RoleBrushConverter.Instance}}">
+                            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" MaxWidth="540" />
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <DockPanel Grid.Row="2" Margin="0,12,0,0" LastChildFill="True">
+            <Button DockPanel.Dock="Right" Content="Send"
+                    Margin="8,0,0,0" Padding="20,10" CornerRadius="14"
+                    Background="{DynamicResource PrimaryHueMidBrush}"
+                    Foreground="{DynamicResource PrimaryHueMidForegroundBrush}"
+                    Command="{Binding SendCommand}" />
+            <TextBox Text="{Binding Input}"
+                     PlaceholderText="Ask CodePlus AI..."
+                     CornerRadius="14"
+                     Background="{DynamicResource MaterialDesignTextFieldBoxBackground}"
+                     Padding="14,10" />
+        </DockPanel>
+    </Grid>
+</UserControl>

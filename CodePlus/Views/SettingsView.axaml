@@ -1,0 +1,68 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CodePlus.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+             x:Class="CodePlus.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <Design.DataContext>
+        <vm:SettingsViewModel />
+    </Design.DataContext>
+
+    <ScrollViewer>
+        <StackPanel Spacing="16" MaxWidth="720" HorizontalAlignment="Left">
+            <TextBlock Text="Settings" FontSize="26" FontWeight="Bold" />
+            <TextBlock Text="Personalize your Material 3 expressive experience." Opacity="0.7" />
+
+            <Border Padding="20" CornerRadius="22"
+                    Background="{DynamicResource MaterialDesignCardBackground}">
+                <StackPanel Spacing="14">
+                    <TextBlock Text="Appearance" FontSize="16" FontWeight="SemiBold" />
+
+                    <DockPanel>
+                        <TextBlock Text="Dark mode" VerticalAlignment="Center" />
+                        <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding IsDarkMode}" />
+                    </DockPanel>
+
+                    <DockPanel>
+                        <TextBlock Text="Dynamic color (Material You)" VerticalAlignment="Center" />
+                        <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding UseDynamicColor}" />
+                    </DockPanel>
+
+                    <DockPanel>
+                        <TextBlock Text="Expressive motion" VerticalAlignment="Center" />
+                        <ToggleSwitch DockPanel.Dock="Right" IsChecked="{Binding EnableExpressiveMotion}" />
+                    </DockPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Primary color" />
+                        <ComboBox SelectedItem="{Binding PrimaryColor}" HorizontalAlignment="Stretch">
+                            <ComboBoxItem>Indigo</ComboBoxItem>
+                            <ComboBoxItem>Purple</ComboBoxItem>
+                            <ComboBoxItem>Teal</ComboBoxItem>
+                            <ComboBoxItem>Pink</ComboBoxItem>
+                            <ComboBoxItem>Amber</ComboBoxItem>
+                            <ComboBoxItem>Blue</ComboBoxItem>
+                        </ComboBox>
+                    </StackPanel>
+
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Corner radius" />
+                        <Slider Value="{Binding CornerRadius}" Minimum="0" Maximum="32" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Border Padding="20" CornerRadius="22"
+                    Background="{DynamicResource MaterialDesignCardBackground}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="About" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock Text="CodePlus v0.1.0 — built with Avalonia + Material 3 Expressive on .NET 10."
+                               Opacity="0.8" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

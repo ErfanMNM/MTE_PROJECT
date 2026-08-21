@@ -8,7 +8,7 @@ public class RustDeskSettings
 {
     public string ConfigFilePath { get; set; } = "";
     public string DefaultRendezvousServer { get; set; } = "rs-ny.rustdesk.com:21116";
-    public string DefaultCustomServer { get; set; } = "rs-ny1.rustdesk.com";
+    public string DefaultCustomServer { get; set; } = "rs-ny.rustdesk.com";
     public string RelayServerToCheck { get; set; } = "100.96.0.11";
     public string InternetCheckHost { get; set; } = "8.8.8.8";
     public string RustDeskExePath { get; set; } = @"C:\Program Files\RustDesk\RustDesk.exe";

@@ -1,0 +1,133 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:CodePlus.ViewModels"
+             xmlns:models="clr-namespace:CodePlus.Models"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="700"
+             x:Class="CodePlus.Views.DashboardView"
+             x:DataType="vm:DashboardViewModel">
+
+    <Design.DataContext>
+        <vm:DashboardViewModel />
+    </Design.DataContext>
+
+    <ScrollViewer>
+        <StackPanel Spacing="20" Margin="0,0,0,20">
+
+            <!-- Hero / Welcome card -->
+            <Border CornerRadius="28" Padding="28"
+                    Background="{DynamicResource PrimaryHueMidBrush}">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Grid.Column="0" Spacing="8">
+                        <TextBlock Text="{Binding WelcomeTitle}"
+                                   FontSize="28" FontWeight="Bold"
+                                   Foreground="{DynamicResource PrimaryHueMidForegroundBrush}" />
+                        <TextBlock Text="{Binding WelcomeSubtitle}"
+                                   FontSize="14" Opacity="0.85"
+                                   Foreground="{DynamicResource PrimaryHueMidForegroundBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,16,0,0">
+                            <Button Content="Open Editor"
+                                    Padding="18,10" CornerRadius="14"
+                                    Background="White"
+                                    Foreground="{DynamicResource PrimaryHueMid}" />
+                            <Button Content="View Reports"
+                                    Padding="18,10" CornerRadius="14"
+                                    Background="#33FFFFFF"
+                                    Foreground="White" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Border Grid.Column="1" Width="120" Height="120" CornerRadius="999"
+                            Background="#22FFFFFF"
+                            VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <TextBlock Text="M3" FontSize="34" FontWeight="Bold"
+                                   Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Quick stats -->
+            <UniformGrid Columns="3" ColumnSpacing="16" RowSpacing="0">
+                <Border Classes="expressive-stat" Padding="20" CornerRadius="24"
+                        Background="{DynamicResource MaterialDesignCardBackground}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Active projects" FontSize="12" Opacity="0.7" />
+                        <TextBlock Text="6" FontSize="32" FontWeight="Bold" />
+                        <TextBlock Text="+2 this week" FontSize="11" Foreground="#4CAF50" />
+                    </StackPanel>
+                </Border>
+                <Border Classes="expressive-stat" Padding="20" CornerRadius="24"
+                        Background="{DynamicResource MaterialDesignCardBackground}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="Snippets" FontSize="12" Opacity="0.7" />
+                        <TextBlock Text="128" FontSize="32" FontWeight="Bold" />
+                        <TextBlock Text="9 new today" FontSize="11" Foreground="#4CAF50" />
+                    </StackPanel>
+                </Border>
+                <Border Classes="expressive-stat" Padding="20" CornerRadius="24"
+                        Background="{DynamicResource MaterialDesignCardBackground}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="AI prompts" FontSize="12" Opacity="0.7" />
+                        <TextBlock Text="42" FontSize="32" FontWeight="Bold" />
+                        <TextBlock Text="Avg 3.2s" FontSize="11" Foreground="#FF9800" />
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+
+            <!-- Projects -->
+            <TextBlock Text="Recent projects" FontSize="18" FontWeight="SemiBold" Margin="4,8,0,4" />
+
+            <ItemsControl ItemsSource="{Binding Projects}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Columns="2" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="models:ProjectSummary">
+                        <Border Margin="0,0,12,12" Padding="18" CornerRadius="22"
+                                Background="{DynamicResource MaterialDesignCardBackground}">
+                            <StackPanel Spacing="10">
+                                <DockPanel LastChildFill="True">
+                                    <Border DockPanel.Dock="Right" Padding="10,4" CornerRadius="999"
+                                            Background="{DynamicResource PrimaryHueLight}">
+                                        <TextBlock Text="{Binding Language}" FontSize="11" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="16" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding Status}" FontSize="12" Opacity="0.7" />
+                                <ProgressBar Value="{Binding Progress}" Maximum="1"
+                                             Height="8" CornerRadius="4"
+                                             Foreground="{DynamicResource PrimaryHueMidBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Snippets preview -->
+            <TextBlock Text="Pinned snippets" FontSize="18" FontWeight="SemiBold" Margin="4,8,0,4" />
+            <ItemsControl ItemsSource="{Binding RecentSnippets}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="models:Snippet">
+                        <Border Margin="0,0,0,10" Padding="16" CornerRadius="18"
+                                Background="{DynamicResource MaterialDesignCardBackground}">
+                            <StackPanel Spacing="6">
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Right" Padding="10,2" CornerRadius="999"
+                                            Background="{DynamicResource SecondaryHueLight}">
+                                        <TextBlock Text="{Binding Language}" FontSize="11" />
+                                    </Border>
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                </DockPanel>
+                                <TextBlock Text="{Binding Code}" FontFamily="Consolas,Menlo,monospace"
+                                           FontSize="12" Opacity="0.85" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
