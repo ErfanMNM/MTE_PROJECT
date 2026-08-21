@@ -31,11 +31,8 @@ void WK_Dequeue_MQTT_DoWork(object? sender, DoWorkEventArgs e)
 
         if (_MQTT_Pub_Queue.TryDequeue(out MQTT_Pub_Payload? payload))
         {
-            _MQTTclient.PublishAsync(message);
+           // _MQTTclient.PublishAsync(message);
         }
-
-
-
         Thread.Sleep(50);
     }
 }
@@ -171,10 +168,6 @@ void CameraTCP_ClientCallBack(enumClient state, string data)
     }
 }
 
-async Task void MQTT()
-{
-    var a = 1;
-}
 
 while (true);
 
